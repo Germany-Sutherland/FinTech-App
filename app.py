@@ -4,122 +4,125 @@ import plotly.express as px
 import pandas as pd
 import numpy as np
 
-# -------------------------------
-# HOW TO USE THIS WEB APP
-# -------------------------------
+# ------------------------------
+# APP HEADER + USAGE GUIDE
+# ------------------------------
+st.set_page_config(page_title="FinTech Mini Suite", layout="wide")
 st.title("💹 FinTech Mini Suite — Free & Simple")
+st.caption("Portfolio tracker • Strategy backtest • ETF allocator • Risk snapshot — built for free Git + free Streamlit")
+
 st.markdown("""
-**Welcome!** This free FinTech app runs entirely on open-source tools and free APIs.  
-You can use it to **explore stocks, track portfolios, backtest simple strategies, allocate ETFs, and view basic risk metrics**.
-
-**How to use:**
-1. **Market Data Tab** → Type a ticker (e.g., `AAPL`, `MSFT`, `BTC-USD`) and choose a period/interval to view recent closing prices.
-2. **Portfolio Tab** → Enter your tickers and quantities to calculate your portfolio's current value.
-3. **Backtest Tab** → Test a simple **SMA crossover strategy** for any ticker to see buy/sell points.
-4. **ETF Allocator Tab** → Enter ETFs and expected returns; app suggests equal-weight allocation.
-5. **Risk Tab** → View simple **Value-at-Risk (VaR)** metrics using historical simulation.
-
-**Tips:**
-- This app uses free `yfinance` data — if data is missing, try a different period/interval.
-- Keep inputs short to stay within Streamlit free tier limits.
-- No sign-in, no cost — runs entirely on free GitHub + free Streamlit Cloud.
-
----
+### 📘 How to Use This Web App
+1. **Market Data** → Enter a valid ticker (e.g., `AAPL`, `MSFT`, `BTC-USD`, `NIFTYBEES.NS`) and select a period & interval.
+2. **Portfolio** → Upload a CSV of tickers & quantities to track live values.
+3. **Backtest (SMA)** → Test a simple moving average crossover strategy.
+4. **ETF Allocator** → Input ETF tickers & weights, see allocation breakdown.
+5. **Risk (VaR)** → Upload portfolio data to compute Value-at-Risk.
+6. All features **use free Yahoo Finance** data via `yfinance`.
+7. Keep requests small — free Streamlit Cloud has rate limits.
+8. If you see "No data returned", try smaller period/interval.
+9. Works best with daily or weekly intervals for longer periods.
+10. You can use this app as a **resume project** to showcase FinTech + Python skills.
 """)
 
-# Tabs
+# ------------------------------
+# TABS
+# ------------------------------
 tabs = st.tabs(["Market Data", "Portfolio", "Backtest (SMA)", "ETF Allocator", "Risk (VaR)"])
 
-# ---------- TAB 1: Market Data ----------
+# ------------------------------
+# TAB 1: MARKET DATA
+# ------------------------------
 with tabs[0]:
-    st.subheader("Market Data Explorer")
+    st.subheader("📊 Market Data Explorer")
     ticker = st.text_input("Ticker (e.g., AAPL, MSFT, BTC-USD, NIFTYBEES.NS)", "AAPL")
-    period = st.selectbox("Period", ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "ytd", "max"], index=5)
+    period = st.selectbox("Period", ["1d", "5d", "1mo", "3mo", "6mo", "1y", "5y", "10y", "ytd", "max"], index=4)
     interval = st.selectbox("Interval", ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1d", "5d", "1wk", "1mo", "3mo"], index=8)
 
-    if ticker:
+    try:
         data = yf.download(ticker, period=period, interval=interval)
-
         if data.empty:
-            st.warning("No data returned for that ticker/period. Try changing settings.")
-        elif "Close" not in data.columns or data["Close"].dropna().empty:
-            st.warning("No valid 'Close' price data found for plotting.")
-            st.write(data.tail())
+            st.error("No data returned. Try another ticker or adjust period/interval.")
+        elif "Close" not in data.columns:
+            st.error("The 'Close' price data is missing for this selection.")
         else:
-            st.write(data.tail())
-            fig = px.line(
-                data.dropna(subset=["Close"]),
-                x=data.index,
-                y="Close",
-                title=f"{ticker} Closing Prices"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            data = data.dropna(subset=["Close"])
+            fig = px.line(data, x=data.index, y="Close", title=f"{ticker} Closing Prices")
+            st.plotly_chart(fig)
+            st.dataframe(data)
+    except Exception as e:
+        st.error(f"Error fetching data: {e}")
 
-# ---------- TAB 2: Portfolio Tracker ----------
+# ------------------------------
+# TAB 2: PORTFOLIO
+# ------------------------------
 with tabs[1]:
-    st.subheader("Portfolio Tracker")
-    tickers_input = st.text_area("Enter tickers (comma separated)", "AAPL,MSFT,GOOGL")
-    qty_input = st.text_area("Enter quantities (comma separated)", "10,5,8")
+    st.subheader("📂 Portfolio Tracker")
+    uploaded_file = st.file_uploader("Upload CSV with columns: Ticker, Quantity", type="csv")
+    if uploaded_file:
+        try:
+            df = pd.read_csv(uploaded_file)
+            prices = {}
+            for t in df["Ticker"]:
+                hist = yf.download(t, period="1d", interval="1d")
+                if not hist.empty and "Close" in hist.columns:
+                    prices[t] = hist["Close"].iloc[-1]
+                else:
+                    prices[t] = np.nan
+            df["Price"] = df["Ticker"].map(prices)
+            df["Value"] = df["Quantity"] * df["Price"]
+            st.dataframe(df)
+            st.metric("Total Portfolio Value", f"${df['Value'].sum():,.2f}")
+        except Exception as e:
+            st.error(f"Error processing portfolio: {e}")
 
-    if st.button("Calculate Portfolio Value"):
-        tickers_list = [t.strip() for t in tickers_input.split(",")]
-        qty_list = [float(q) for q in qty_input.split(",")]
-
-        prices = yf.download(tickers_list, period="1d")["Close"].iloc[-1]
-        df_portfolio = pd.DataFrame({
-            "Ticker": tickers_list,
-            "Quantity": qty_list,
-            "Last Price": [prices[t] for t in tickers_list],
-        })
-        df_portfolio["Total Value"] = df_portfolio["Quantity"] * df_portfolio["Last Price"]
-
-        st.dataframe(df_portfolio)
-        st.success(f"Portfolio Total Value: ${df_portfolio['Total Value'].sum():,.2f}")
-
-# ---------- TAB 3: SMA Backtest ----------
+# ------------------------------
+# TAB 3: BACKTEST SMA
+# ------------------------------
 with tabs[2]:
-    st.subheader("Simple SMA Backtest")
-    ticker_bt = st.text_input("Ticker for backtest", "AAPL")
-    short_window = st.slider("Short SMA window", 5, 50, 20)
-    long_window = st.slider("Long SMA window", 20, 200, 50)
-
-    if st.button("Run Backtest"):
-        data_bt = yf.download(ticker_bt, period="1y", interval="1d")
-        if not data_bt.empty:
-            data_bt["SMA_short"] = data_bt["Close"].rolling(short_window).mean()
-            data_bt["SMA_long"] = data_bt["Close"].rolling(long_window).mean()
-            fig_bt = px.line(data_bt, x=data_bt.index, y=["Close", "SMA_short", "SMA_long"], title=f"{ticker_bt} SMA Backtest")
-            st.plotly_chart(fig_bt, use_container_width=True)
+    st.subheader("📈 Backtest SMA Strategy")
+    bt_ticker = st.text_input("Backtest Ticker", "AAPL")
+    short_window = st.number_input("Short SMA window", 5, 50, 20)
+    long_window = st.number_input("Long SMA window", 10, 200, 50)
+    try:
+        bt_data = yf.download(bt_ticker, period="1y", interval="1d")
+        if bt_data.empty or "Close" not in bt_data.columns:
+            st.error("No price data available for backtest.")
         else:
-            st.warning("No data for backtest.")
+            bt_data["SMA_short"] = bt_data["Close"].rolling(short_window).mean()
+            bt_data["SMA_long"] = bt_data["Close"].rolling(long_window).mean()
+            fig = px.line(bt_data, x=bt_data.index, y=["Close", "SMA_short", "SMA_long"], title=f"{bt_ticker} SMA Backtest")
+            st.plotly_chart(fig)
+    except Exception as e:
+        st.error(f"Error in backtest: {e}")
 
-# ---------- TAB 4: ETF Allocator ----------
+# ------------------------------
+# TAB 4: ETF ALLOCATOR
+# ------------------------------
 with tabs[3]:
-    st.subheader("ETF Allocator")
-    etf_input = st.text_area("Enter ETF tickers (comma separated)", "SPY,IVV,VOO")
-    exp_return_input = st.text_area("Enter expected returns (comma separated, in %)", "8,7,9")
+    st.subheader("📊 ETF Allocator")
+    etf_input = st.text_area("Enter ETF tickers and weights (e.g., SPY,50; QQQ,30; IWM,20)", "SPY,50; QQQ,30; IWM,20")
+    try:
+        parts = [p.strip() for p in etf_input.split(";") if p.strip()]
+        etfs, weights = zip(*[(p.split(",")[0], float(p.split(",")[1])) for p in parts])
+        alloc_df = pd.DataFrame({"ETF": etfs, "Weight": weights})
+        fig = px.pie(alloc_df, values="Weight", names="ETF", title="ETF Allocation")
+        st.plotly_chart(fig)
+        st.dataframe(alloc_df)
+    except Exception as e:
+        st.error(f"Error processing ETF allocation: {e}")
 
-    if st.button("Allocate ETFs"):
-        etfs = [e.strip() for e in etf_input.split(",")]
-        returns = [float(r) for r in exp_return_input.split(",")]
-        allocation = [1/len(etfs)] * len(etfs)  # Equal weight
-        df_etf = pd.DataFrame({
-            "ETF": etfs,
-            "Expected Return (%)": returns,
-            "Allocation (%)": [a*100 for a in allocation]
-        })
-        st.dataframe(df_etf)
-
-# ---------- TAB 5: Risk Metrics ----------
+# ------------------------------
+# TAB 5: RISK (VaR)
+# ------------------------------
 with tabs[4]:
-    st.subheader("Risk (Value-at-Risk)")
-    ticker_risk = st.text_input("Ticker for risk analysis", "AAPL")
-    confidence = st.slider("Confidence Level", 90, 99, 95)
-
-    if st.button("Calculate VaR"):
-        data_risk = yf.download(ticker_risk, period="1y")["Close"].pct_change().dropna()
-        if not data_risk.empty:
-            var = np.percentile(data_risk, 100 - confidence)
-            st.write(f"{confidence}% 1-day VaR: {var*100:.2f}%")
-        else:
-            st.warning("No data for risk calculation.")
+    st.subheader("⚠ Risk Analysis (VaR)")
+    risk_file = st.file_uploader("Upload CSV with historical prices for portfolio", type="csv")
+    if risk_file:
+        try:
+            prices_df = pd.read_csv(risk_file, index_col=0, parse_dates=True)
+            returns = prices_df.pct_change().dropna()
+            var_95 = np.percentile(returns, 5)  # 5th percentile
+            st.write(f"Portfolio 95% daily Value-at-Risk: {var_95:.2%}")
+        except Exception as e:
+            st.error(f"Error computing VaR: {e}")
